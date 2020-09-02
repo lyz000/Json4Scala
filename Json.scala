@@ -2,75 +2,91 @@
  * Created by gaoyunxiang on 8/22/15.
  */
 
+import java.lang.reflect.{Field, Modifier}
 import scala.collection.mutable
 
 object Json {
 
-    object Type extends Enumeration {
-        val NULL, INT, DOUBLE, BOOLEAN, STRING, ARRAY, OBJECT = Value
-    }
+    class Value(inputValue: Any) {
 
-    class Value(input_value: Any) {
+        def asAny: Any = value
 
-        def asInt: Int = value match {
-            case v: Long if v.toInt == v => v.toInt
-        }
-        def isInt:Boolean = value.isInstanceOf[Long] || value.isInstanceOf[Int]
+        def isNull: Boolean = value == null
 
-        def asLong = value.asInstanceOf[Long]
+        def asShort: Short = value.toString.toShort
+        def isShort: Boolean = if (isLong) asLong.toShort == asLong else false
 
-        def asDouble = value.asInstanceOf[Double]
-        def isDouble = value.isInstanceOf[Double]
+        def asInt: Int = value.toString.toInt
+        def isInt: Boolean = if (isLong) asLong.toInt == asLong else false
 
-        def asBoolean = value.asInstanceOf[Boolean]
-        def isBoolean = value.isInstanceOf[Boolean]
+        def asLong: Long = value.asInstanceOf[Long]
+        def isLong: Boolean = value.isInstanceOf[Long]
 
-        def asString = value.asInstanceOf[String]
-        def isString = value.isInstanceOf[String]
+        def asFloat: Float = value.toString.toFloat
 
-        def asArray = value.asInstanceOf[Array[Value]]
-        def isArray = value.isInstanceOf[Array[_]]
+        def asDouble: Double = value.asInstanceOf[Double]
+        def isDouble: Boolean = value.isInstanceOf[Double]
 
-        def asMap = value.asInstanceOf[Map[String, Value]]
-        def isMap = value.isInstanceOf[Map[_, _]]
+        def asNumber: Number = value.asInstanceOf[Number]
+        def isNumber: Boolean = value.isInstanceOf[Number]
 
-        def apply(i: Int): Value = value.asInstanceOf[Array[Value]](i)
+        def asBoolean: Boolean = value.asInstanceOf[Boolean]
+        def isBoolean: Boolean = value.isInstanceOf[Boolean]
 
-        def apply(key: String): Value = value.asInstanceOf[Map[String, Value]](key)
+        def asString: String = value.asInstanceOf[String]
+        def isString: Boolean = value.isInstanceOf[String]
+
+        def asArray: Array[Value] = value.asInstanceOf[Array[Value]]
+        def isArray: Boolean = value.isInstanceOf[Array[_]]
+
+        def asMap: Map[String, Value] = value.asInstanceOf[Map[String, Value]]
+        def isMap: Boolean = value.isInstanceOf[Map[_, _]]
+
+        def apply(i: Int): Value =
+            if (isArray)
+                asArray(i)
+            else
+                throw new Exception("field is not Array")
+
+        def apply(key: String): Value =
+            if (isMap)
+                asMap(key)
+            else
+                throw new Exception("field is not Map")
 
         def write(): String = {
             val buffer = new mutable.StringBuilder()
-            rec_write(buffer)
+            recWrite(buffer)
             buffer.toString()
         }
 
-        private val value: Any = input_value match {
-            case null         => null
-            case v: Int       => v.toLong
-            case v: Long      => input_value
-            case v: Double    => input_value
-            case v: Boolean   => input_value
-            case v: String    => input_value
-            case v: Value     => v.value
+        override def toString: String = String.valueOf(inputValue)
+
+        private val value: Any = inputValue match {
+            case null => null
+            case v: Int => v.toLong
+            case v: Long => v
+            case v: Double => v
+            case v: Boolean => v
+            case v: String => v
+            case v: Value => v.value
             case v: Map[_, _] =>
-                v.map { case one =>
-                    (one._1.toString, Value(one._2))
-                }
-            case v: Vector[_] => v.map(Value(_)).toArray
-            case v: List[_]   => v.map(Value(_)).toArray
-            case v: Array[_]  => v.map(Value(_))
-            case v: Iterator[_] => v.map(Value(_)).toArray
+                v.map(one =>
+                    (one._1.toString, Value(one._2)))
+            case v: Iterable[_] => v.map(Value(_)).toArray
+            case v: mutable.Iterable[_] => v.map(Value(_)).toArray
+            case v: Array[_] => v.map(Value(_))
 
             case _ => throw new Exception("unknow type")
         }
 
-        private def rec_write(buffer: mutable.StringBuilder): Unit = {
+        private def recWrite(buffer: mutable.StringBuilder): Unit = {
             value match {
-                case null        => buffer.append("null")
-                case v: Long     => buffer.append(v)
-                case v: Boolean  => buffer.append(v)
-                case v: Double   => buffer.append(v)
-                case v: String   =>
+                case null => buffer.append("null")
+                case v: Long => buffer.append(v)
+                case v: Boolean => buffer.append(v)
+                case v: Double => buffer.append(v)
+                case v: String =>
                     buffer.append('"')
                     v.foreach {
                         each => {
@@ -98,14 +114,14 @@ object Json {
                         if (i != 0) {
                             buffer.append(',')
                         }
-                        v(i).asInstanceOf[Value].rec_write(buffer)
+                        v(i).asInstanceOf[Value].recWrite(buffer)
                     }
                     buffer.append(']')
                 case v: Map[_, _] =>
                     buffer.append('{')
                     var first = true
                     v.foreach {
-                        case one =>
+                        one =>
                             if (!first) {
                                 buffer.append(',')
                             }
@@ -114,17 +130,16 @@ object Json {
                             buffer.append(one._1)
                             buffer.append('"')
                             buffer.append(':')
-                            one._2.asInstanceOf[Value].rec_write(buffer)
+                            one._2.asInstanceOf[Value].recWrite(buffer)
                     }
                     buffer.append('}')
                 case _ => throw new Exception("unknow data type")
             }
         }
     }
-
     object Value {
-        def apply(in: Any): Value = {
-            new Value(in)
+        def apply(inputValue: Any): Value = {
+            new Value(inputValue)
         }
     }
 
@@ -138,31 +153,31 @@ object Json {
             } else if (p(i) == '{') {
                 sta.append(('{', null))
             } else if (p(i) == ']') {
-                val vec = mutable.ArrayStack[Value]()
+                val vec = mutable.Stack[Value]()
                 while (sta.nonEmpty && sta.last._1 != '[') {
                     vec.push(Value(sta.last._2))
                     sta.trimEnd(1)
                 }
                 if (sta.isEmpty || sta.last._1 != '[') {
-                    throw new Exception("parse error, [] not match")
+                    throw JsonParseException("parse error, [] not match")
                 }
                 sta.trimEnd(1)
-                sta.append(('a', vec.iterator))
+                sta.append(('a', vec))
             } else if (p(i) == '}') {
-                val now = mutable.HashMap[String, Value]()
+                val now = mutable.ListBuffer[(String, Any)]()
 
                 while (sta.length >= 2 && sta.last._1 != '{') {
                     val new_value: Value = Value(sta.last._2)
                     sta.trimEnd(1)
                     val new_key = sta.last._2.asInstanceOf[String]
                     sta.trimEnd(1)
-                    now.update(new_key, new_value)
+                    now addOne(new_key, new_value)
                 }
                 if (sta.isEmpty || sta.last._1 != '{') {
-                    throw new Exception("parse error, {} not match")
+                    throw JsonParseException("parse error, {} not match")
                 }
                 sta.trimEnd(1)
-                sta.append(('o', now.toMap))
+                sta.append(('o', now.reverse.toMap))
             } else if (p(i) == '"') {
                 var j = i + 1
                 val S = new mutable.StringBuilder()
@@ -207,30 +222,110 @@ object Json {
                     j += 1
                 }
                 if (is_double) {
-                    val v = p.substring(i, j).toDouble * minus_flag
+                    val v = p.substring(i, j).trim.toDouble * minus_flag
                     sta.append(('d', v))
                 } else {
-                    val v = p.substring(i, j).toLong * minus_flag
+                    val v = p.substring(i, j).trim.toLong * minus_flag
                     sta.append(('i', v))
                 }
                 i = j - 1
-            } else if (p.substring(i, i + 4) == "null") {
+            } else if (p.substring(i, i + 4).trim == "null") {
                 sta.append(('n', null))
                 i += 3
-            } else if (p.substring(i, i + 4) == "true") {
+            } else if (p.substring(i, i + 4).trim == "true") {
                 sta.append(('b', true))
                 i += 3
-            } else if (p.substring(i, i + 5) == "false") {
+            } else if (p.substring(i, i + 5).trim == "false") {
                 sta.append(('b', false))
                 i += 4
             } else {
-                throw new Exception("parse error:unrecognized character##" + p.substring(i) + "##pos:" + i)
+                throw JsonParseException(p, i)
             }
             i += 1
         }
         if (sta.length != 1) {
-            throw new Exception("parse error, type=final")
+            throw JsonParseException("parse error, type=final")
         }
         Value(sta.head._2)
     }
+
+    class JsonParseException(private val msg: String) extends Exception() {
+        override def getMessage: String = msg
+    }
+    object JsonParseException {
+        def apply(msg: String): JsonParseException = new JsonParseException(msg)
+        def apply(json: String, position: Int): JsonParseException = new JsonParseException(buildMessage(json, position))
+
+        private def buildMessage(json: String, position: Int): String = {
+            val lines = json.split(System.lineSeparator)
+            var errLineNo: Int = 0
+            var errLineText: String = ""
+            var linePosition: Int = 0
+
+            var length = 0
+            while (errLineNo < lines.size && length < position) {
+                length += lines(errLineNo).length
+                errLineNo += 1
+            }
+            errLineText = lines(errLineNo - 1)
+            // due to split, lineSeparator has been removed
+            linePosition = position - lines.take(errLineNo - 1).foldLeft(0) { (acc, line) => acc + (line + System.lineSeparator).length }
+
+            s"${System.lineSeparator}\tat position [$position]${System.lineSeparator}" +
+                s"\tat line position [$linePosition]>>>${lines(errLineNo - 1)(linePosition)}${System.lineSeparator}" +
+                s"\tat error line [$errLineNo]>>>${lines(errLineNo - 1)}${System.lineSeparator}" +
+                s"\tat json>>>${json.substring(position)}"
+        }
+    }
+
+    def toJson(any: Any): String = {
+        any match {
+            case null => "null"
+            case v: String => "\"" + v + "\""
+            case v: Number => v.toString
+            case v: Char => v.toString
+            case v: Boolean => v.toString
+            case v: Array[_] => v.map(toJson).mkString("[", ",", "]")
+            case v: Iterable[_] => v.map(toJson).mkString("[", ",", "]")
+            case v: mutable.Iterable[_] => v.map(toJson).mkString("[", ",", "]")
+            case v: Map[_, _] => v.map { it => "\"" + it._1 + "\":" + toJson(it._2) }.mkString("{", ",", "}")
+            case _ => objectToJson(any)
+        }
+    }
+
+    private def objectToJson(obj: Any): String = {
+        if (obj == null) {
+            toJson(null)
+        } else {
+            val map = mutable.Map[String, Any]()
+            val fields = mutable.ListBuffer[Field]()
+            var currentClass = obj.getClass
+            while (currentClass != null) {
+                fields ++= currentClass.getDeclaredFields
+                currentClass = currentClass.getSuperclass
+            }
+            fields.foreach { field =>
+                if (isReadable(field.getModifiers)) {
+                    if (field.canAccess(obj)) {
+                        field.setAccessible(true)
+                    }
+                    map += (field.getName -> field.get(obj))
+                } else {
+                    obj.getClass.getDeclaredMethods.find { method =>
+                        isReadable(method.getModifiers) &&
+                            (method.getName == field.getName || method.getName == field.getName.substring(1))
+                    } match {
+                        case Some(getter) => map += (getter.getName -> getter.invoke(obj))
+                        case _ => None
+                    }
+                }
+            }
+            map.map(kv => "\"" + kv._1 + "\":" + toJson(kv._2)).mkString("{", ",", "}")
+        }
+    }
+
+    private def isReadable(modifiers: Int): Boolean = {
+        !Modifier.isPrivate(modifiers) && !Modifier.isProtected(modifiers)
+    }
+
 }
