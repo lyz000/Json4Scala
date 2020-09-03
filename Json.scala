@@ -2,7 +2,8 @@
  * Created by gaoyunxiang on 8/22/15.
  */
 
-import java.lang.reflect.{Field, Modifier}
+import java.lang.reflect.{Field, Method, Modifier}
+
 import scala.collection.mutable
 
 object Json {
@@ -164,7 +165,7 @@ object Json {
                 sta.trimEnd(1)
                 sta.append(('a', vec))
             } else if (p(i) == '}') {
-                val now = mutable.ListBuffer[(String, Any)]()
+                val now = mutable.Buffer[(String, Any)]()
 
                 while (sta.length >= 2 && sta.last._1 != '{') {
                     val new_value: Value = Value(sta.last._2)
@@ -298,25 +299,38 @@ object Json {
             toJson(null)
         } else {
             val map = mutable.Map[String, Any]()
-            val fields = mutable.ListBuffer[Field]()
+            val fields = mutable.Buffer[Field]()
+            val methods = mutable.Buffer[Method]()
             var currentClass = obj.getClass
             while (currentClass != null) {
                 fields ++= currentClass.getDeclaredFields
+                // take child's method if has override
+                methods ++= currentClass.getDeclaredMethods.filter { s =>
+                    !methods.exists { c =>
+                            c.getName == s.getName &&
+                            c.getParameterTypes.zip(s.getParameterTypes).forall(pair => pair._1 == pair._2) &&
+                            c.getReturnType == s.getReturnType
+                    }
+                }
                 currentClass = currentClass.getSuperclass
             }
+
             fields.foreach { field =>
                 if (isReadable(field.getModifiers)) {
-                    if (field.canAccess(obj)) {
-                        field.setAccessible(true)
-                    }
                     map += (field.getName -> field.get(obj))
                 } else {
-                    obj.getClass.getDeclaredMethods.find { method =>
-                        isReadable(method.getModifiers) &&
-                            (method.getName == field.getName || method.getName == field.getName.substring(1))
-                    } match {
-                        case Some(getter) => map += (getter.getName -> getter.invoke(obj))
-                        case _ => None
+                    methods.find(method =>
+                            isGetter(method, field, method.getName == field.getName))
+                        .getOrElse(methods.find(method =>
+                            isGetter(method, field, method.getName == field.getName.substring(1)))
+                        .getOrElse(methods.find(method =>
+                            isGetter(method, field, method.getName == s"get${field.getName.head.toUpper}${field.getName.tail}"))
+                        .orNull)) match {
+                        case null =>
+                            field.setAccessible(true)
+                            map += (field.getName -> field.get(obj))
+                        case getter =>
+                            map += (field.getName -> getter.invoke(obj))
                     }
                 }
             }
@@ -324,8 +338,12 @@ object Json {
         }
     }
 
-    private def isReadable(modifiers: Int): Boolean = {
-        !Modifier.isPrivate(modifiers) && !Modifier.isProtected(modifiers)
-    }
+    private def isReadable(modifiers: Int): Boolean = Modifier.isPublic(modifiers)
+
+    private def isGetter(method: Method, field: Field, condition: => Boolean): Boolean =
+        isReadable(method.getModifiers) &&
+        condition &&
+        method.getParameterCount == 0 &&
+        method.getReturnType == field.getType
 
 }
