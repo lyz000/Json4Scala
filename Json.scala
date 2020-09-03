@@ -250,35 +250,6 @@ object Json {
         Value(sta.head._2)
     }
 
-    class JsonParseException(private val msg: String) extends Exception() {
-        override def getMessage: String = msg
-    }
-    object JsonParseException {
-        def apply(msg: String): JsonParseException = new JsonParseException(msg)
-        def apply(json: String, position: Int): JsonParseException = new JsonParseException(buildMessage(json, position))
-
-        private def buildMessage(json: String, position: Int): String = {
-            val lines = json.split(System.lineSeparator)
-            var errLineNo: Int = 0
-            var errLineText: String = ""
-            var linePosition: Int = 0
-
-            var length = 0
-            while (errLineNo < lines.size && length < position) {
-                length += lines(errLineNo).length
-                errLineNo += 1
-            }
-            errLineText = lines(errLineNo - 1)
-            // due to split, lineSeparator has been removed
-            linePosition = position - lines.take(errLineNo - 1).foldLeft(0) { (acc, line) => acc + (line + System.lineSeparator).length }
-
-            s"${System.lineSeparator}\tat position [$position]${System.lineSeparator}" +
-                s"\tat line position [$linePosition]>>>${lines(errLineNo - 1)(linePosition)}${System.lineSeparator}" +
-                s"\tat error line [$errLineNo]>>>${lines(errLineNo - 1)}${System.lineSeparator}" +
-                s"\tat json>>>${json.substring(position)}"
-        }
-    }
-
     def toJson(any: Any): String = {
         any match {
             case null => "null"
@@ -345,5 +316,34 @@ object Json {
         condition &&
         method.getParameterCount == 0 &&
         method.getReturnType == field.getType
+
+    class JsonParseException(private val msg: String) extends Exception() {
+        override def getMessage: String = msg
+    }
+    object JsonParseException {
+        def apply(msg: String): JsonParseException = new JsonParseException(msg)
+        def apply(json: String, position: Int): JsonParseException = new JsonParseException(buildMessage(json, position))
+
+        private def buildMessage(json: String, position: Int): String = {
+            val lines = json.split(System.lineSeparator)
+            var errLineNo: Int = 0
+            var errLineText: String = ""
+            var linePosition: Int = 0
+
+            var length = 0
+            while (errLineNo < lines.size && length < position) {
+                length += lines(errLineNo).length
+                errLineNo += 1
+            }
+            errLineText = lines(errLineNo - 1)
+            // due to split, lineSeparator has been removed
+            linePosition = position - lines.take(errLineNo - 1).foldLeft(0) { (acc, line) => acc + (line + System.lineSeparator).length }
+
+            s"${System.lineSeparator}\tat position [$position]${System.lineSeparator}" +
+                s"\tat line position [$linePosition]>>>${lines(errLineNo - 1)(linePosition)}${System.lineSeparator}" +
+                s"\tat error line [$errLineNo]>>>${lines(errLineNo - 1)}${System.lineSeparator}" +
+                s"\tat json>>>${json.substring(position)}"
+        }
+    }
 
 }
