@@ -291,11 +291,14 @@ object Json {
                     map += (field.getName -> field.get(obj))
                 } else {
                     methods.find(method =>
+                            // java getter
+                            isGetter(method, field, method.getName == s"get${field.getName.head.toUpper}${field.getName.tail}"))
+                        .getOrElse(methods.find(method =>
+                            // scala
                             isGetter(method, field, method.getName == field.getName))
                         .getOrElse(methods.find(method =>
+                            // scala getter
                             isGetter(method, field, method.getName == field.getName.substring(1)))
-                        .getOrElse(methods.find(method =>
-                            isGetter(method, field, method.getName == s"get${field.getName.head.toUpper}${field.getName.tail}"))
                         .orNull)) match {
                         case null =>
                             field.setAccessible(true)
