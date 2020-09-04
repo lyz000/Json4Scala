@@ -286,25 +286,43 @@ object Json {
                 currentClass = currentClass.getSuperclass
             }
 
+
+            val annotationNames = obj.getClass.getAnnotations.map(_.annotationType().getName)
             fields.foreach { field =>
                 if (isReadable(field.getModifiers)) {
-                    map += (field.getName -> field.get(obj))
+                    map += field.getName -> field.get(obj)
                 } else {
-                    methods.find(method =>
-                            // java getter
-                            isGetter(method, field, method.getName == s"get${field.getName.head.toUpper}${field.getName.tail}"))
-                        .getOrElse(methods.find(method =>
-                            // scala
+                    if (annotationNames.isEmpty || annotationNames.contains("kotlin.Metadata")) {
+                        // java || kotlin
+                        methods.find(method =>
+                            isGetter(method, field
+                                , method.getName == s"get${field.getName.head.toUpper}${field.getName.tail}"))
+                        match {
+                            case Some(getter) =>
+                                map += field.getName -> getter.invoke(obj)
+                            case None =>
+                                field.setAccessible(true)
+                                map += field.getName -> field.get(obj)
+                        }
+                    } else if (annotationNames.contains("scala.reflect.ScalaSignature")) {
+                        // scala
+                        methods.find(method =>
                             isGetter(method, field, method.getName == field.getName))
-                        .getOrElse(methods.find(method =>
-                            // scala getter
-                            isGetter(method, field, method.getName == field.getName.substring(1)))
-                        .orNull)) match {
-                        case null =>
-                            field.setAccessible(true)
-                            map += (field.getName -> field.get(obj))
-                        case getter =>
-                            map += (field.getName -> getter.invoke(obj))
+                        match {
+                            case Some(getter) =>
+                                map += field.getName -> getter.invoke(obj)
+                            case None =>
+                                methods.find(method =>
+                                    isGetter(method, field,
+                                        field.getName.take(1) == "_" && method.getName == field.getName.substring(1)))
+                                match {
+                                    case Some(getter) =>
+                                        map += getter.getName -> getter.invoke(obj)
+                                    case None =>
+                                        field.setAccessible(true)
+                                        map += field.getName -> field.get(obj)
+                                }
+                        }
                     }
                 }
             }
@@ -316,9 +334,9 @@ object Json {
 
     private def isGetter(method: Method, field: Field, condition: => Boolean): Boolean =
         isReadable(method.getModifiers) &&
-        condition &&
         method.getParameterCount == 0 &&
-        method.getReturnType == field.getType
+        method.getReturnType == field.getType &&
+        condition
 
     class JsonParseException(private val msg: String) extends Exception() {
         override def getMessage: String = msg
